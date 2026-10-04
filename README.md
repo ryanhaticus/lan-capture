@@ -4,16 +4,16 @@
 
 # LAN Capture
 
-LAN Capture sends a Mac display to OBS over a local network. The receiving computer can use any operating system that supports OBS.
+LAN Capture streams a Mac display across a local network. It sends H.264 video as MPEG-TS over SRT to any compatible receiver.
 
-The app captures video with ScreenCaptureKit and encodes H.264 with VideoToolbox. FFmpeg sends the encoded video as MPEG-TS over SRT.
+The app captures video with ScreenCaptureKit and encodes H.264 with VideoToolbox. OBS Studio is one supported receiver, but it is not required.
 
 > LAN Capture sends video only. It does not send system audio.
 
 ## Features
 
 - Menu-bar controls for the stream and video settings
-- The local IPv4 address and a copyable OBS input URL
+- The local IPv4 address and a copyable SRT input URL
 - Hardware H.264 encoding through VideoToolbox
 - SRT listener mode, so the Mac does not require the receiver address
 - Configurable width, height, frame rate, bitrate, and port
@@ -26,7 +26,7 @@ LAN Capture requires:
 
 - macOS 13 or later
 - FFmpeg with SRT support
-- OBS Studio on the receiving computer
+- A receiver that can read H.264 video in MPEG-TS over SRT
 - A local network connection between both computers
 
 A wired network gives the most consistent results for 1080p at 60 fps.
@@ -89,13 +89,29 @@ If the script cannot find an identity, it uses an ad-hoc signature. macOS can re
 
 LAN Capture is a regular macOS app. It appears in the menu bar, Dock, and Force Quit window.
 
-## Connect OBS
+## Connect a receiver
+
+LAN Capture listens for an SRT connection. The receiver connects to the Mac with the URL shown in the app.
+
+The URL uses this form:
+
+```text
+srt://MAC_IP:9000?latency=20000
+```
+
+The receiver must read MPEG-TS and decode H.264 video. If the receiver has an SRT mode setting, select caller mode.
+
+## Connect OBS Studio
+
+In OBS, select **Media Source**. This is the media-file source type, and it also accepts network streams.
+
+Do not select **Video Capture Device** or **Browser Source**.
 
 1. Open LAN Capture on the Mac.
 2. Click the menu-bar icon.
 3. Set the output size, frame rate, bitrate, and listen port.
 4. Click **Start Stream**.
-5. Copy the OBS input URL.
+5. Copy the SRT input URL.
 6. Add a **Media Source** in OBS.
 7. Clear **Local File**.
 8. Enter these values:
@@ -108,7 +124,7 @@ Network Buffering: 0 MB
 
 Use the input URL from the app instead of typing `MAC_IP`. Enable hardware decoding in OBS when it is available.
 
-LAN Capture listens for an SRT connection. OBS connects to the Mac, so LAN Capture does not require the receiver address.
+OBS connects to the Mac, so LAN Capture does not require the OBS address.
 
 The default output is 1920×1080 at 60 fps and 20 Mbps. The default listen port is 9000.
 
@@ -120,7 +136,7 @@ The default mode center-crops the display when the display and output use differ
 
 Enable **Blur background instead of cropping** to preserve the full display. The app fills the unused area with blurred display content.
 
-OBS reads the width and height from the H.264 stream. Do not add these values to the OBS input URL.
+The H.264 stream carries its width and height. Compatible receivers read these values without URL parameters.
 
 ## Reduce latency
 
@@ -129,7 +145,7 @@ OBS reads the width and height from the H.264 stream. Do not add these values to
 - Keep the sender and receiver on the same local network.
 - Reduce the bitrate or frame rate if the network drops packets.
 
-The `latency=20000` value sets a 20 ms SRT latency. OBS buffering and video decoding can add more delay.
+The `latency=20000` value sets a 20 ms SRT latency. Receiver buffering and video decoding can add more delay.
 
 ## Use a custom FFmpeg path
 
