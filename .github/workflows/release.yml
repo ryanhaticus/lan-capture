@@ -1,0 +1,148 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build macOS release
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Read the version tag
+        id: version
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Release tags must use the form vMAJOR.MINOR.PATCH." >&2
+            exit 1
+          fi
+          echo "number=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Run tests
+        run: swift test
+
+      - name: Examine Swift formatting
+        run: swift format lint --strict --recursive Sources Tests Package.swift scripts/generate-icon.swift
+
+      - name: Configure code signing
+        id: signing
+        shell: bash
+        run: |
+          if [[ -z "$MACOS_CERTIFICATE" ]]; then
+            echo "No Developer ID certificate is configured. The release will use an ad-hoc signature."
+            echo "identity=-" >> "$GITHUB_OUTPUT"
+            echo "notarize=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          required_values=(
+            "$MACOS_CERTIFICATE_PASSWORD"
+            "$APPLE_ID"
+            "$APPLE_TEAM_ID"
+            "$APPLE_APP_PASSWORD"
+          )
+          for value in "${required_values[@]}"; do
+            if [[ -z "$value" ]]; then
+              echo "The signing certificate is set, but one or more notarization secrets are missing." >&2
+              exit 1
+            fi
+          done
+
+          certificate_path="$RUNNER_TEMP/developer-id.p12"
+          keychain_path="$RUNNER_TEMP/lan-capture-signing.keychain-db"
+          keychain_password="temporary-build-keychain"
+
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -P "$MACOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$keychain_path"
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path"
+
+          identity="$(
+            security find-identity -v -p codesigning "$keychain_path" \
+              | sed -n 's/.*"\(Developer ID Application:[^"]*\)".*/\1/p' \
+              | head -1
+          )"
+          if [[ -z "$identity" ]]; then
+            echo "The certificate does not contain a Developer ID Application identity." >&2
+            exit 1
+          fi
+
+          echo "identity=$identity" >> "$GITHUB_OUTPUT"
+          echo "notarize=true" >> "$GITHUB_OUTPUT"
+
+      - name: Build the app bundle
+        env:
+          LANCAPTURE_VERSION: ${{ steps.version.outputs.number }}
+          LANCAPTURE_BUILD_NUMBER: ${{ github.run_number }}
+          LANCAPTURE_SIGNING_IDENTITY: ${{ steps.signing.outputs.identity }}
+        run: ./scripts/build-app.sh
+
+      - name: Notarize the app bundle
+        if: steps.signing.outputs.notarize == 'true'
+        shell: bash
+        run: |
+          submission="$RUNNER_TEMP/LAN-Capture-notarization.zip"
+          ditto -c -k --sequesterRsrc --keepParent 'dist/LAN Capture.app' "$submission"
+          xcrun notarytool submit "$submission" \
+            --apple-id "$APPLE_ID" \
+            --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --wait
+          xcrun stapler staple 'dist/LAN Capture.app'
+          xcrun stapler validate 'dist/LAN Capture.app'
+
+      - name: Package the release
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          archive="artifacts/LAN-Capture-${{ steps.version.outputs.number }}-macOS.zip"
+          ditto -c -k --sequesterRsrc --keepParent 'dist/LAN Capture.app' "$archive"
+          (
+            cd artifacts
+            shasum -a 256 "$(basename "$archive")" > "$(basename "$archive").sha256"
+          )
+
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            artifacts/* \
+            --generate-notes \
+            --title "LAN Capture $GITHUB_REF_NAME"
+
+      - name: Upload the release bundle as a workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LAN-Capture-${{ steps.version.outputs.number }}-macOS
+          path: artifacts/
+          if-no-files-found: error
