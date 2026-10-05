@@ -18,13 +18,26 @@ final class ScreenCaptureSource: NSObject, SCStreamOutput {
     func start() async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
-            onScreenWindowsOnly: true
+            onScreenWindowsOnly: !configuration.hideNotifications
         )
         guard let display = chooseDisplay(from: content.displays) else {
             throw CaptureError.displayNotFound(configuration.displayID)
         }
 
-        let filter = SCContentFilter(display: display, excludingWindows: [])
+        let filter: SCContentFilter
+        if configuration.hideNotifications {
+            // Exclude the application so banners created after capture starts are hidden too.
+            let notificationApps = content.applications.filter {
+                $0.bundleIdentifier == "com.apple.notificationcenterui"
+            }
+            filter = SCContentFilter(
+                display: display,
+                excludingApplications: notificationApps,
+                exceptingWindows: []
+            )
+        } else {
+            filter = SCContentFilter(display: display, excludingWindows: [])
+        }
         let streamConfiguration = SCStreamConfiguration()
         streamConfiguration.width = configuration.width
         streamConfiguration.height = configuration.height
@@ -48,7 +61,7 @@ final class ScreenCaptureSource: NSObject, SCStreamOutput {
             timescale: CMTimeScale(configuration.fps)
         )
         streamConfiguration.queueDepth = 3
-        streamConfiguration.showsCursor = true
+        streamConfiguration.showsCursor = !configuration.hideCursor
         streamConfiguration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 
         let stream = SCStream(filter: filter, configuration: streamConfiguration, delegate: nil)

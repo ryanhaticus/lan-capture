@@ -6,7 +6,7 @@ final class StreamConfigurationTests: XCTestCase {
     func testCustomVideoOptionsAreRemovedFromTransportURL() throws {
         let configuration = try StreamConfiguration.parse(
             url:
-                "srt://192.168.1.20:9000?mode=caller&latency=40000&width=2560&height=1440&fps=60&bitrate=30000000&blurBackground=true",
+                "srt://192.168.1.20:9000?mode=caller&latency=40000&width=2560&height=1440&fps=60&bitrate=30000000&blurBackground=true&hideCursor=true&hideNotifications=true",
         )
 
         XCTAssertEqual(configuration.width, 2560)
@@ -14,6 +14,8 @@ final class StreamConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.fps, 60)
         XCTAssertEqual(configuration.bitrate, 30_000_000)
         XCTAssertTrue(configuration.blurredBackground)
+        XCTAssertTrue(configuration.hideCursor)
+        XCTAssertTrue(configuration.hideNotifications)
         XCTAssertEqual(
             configuration.transportURL.absoluteString,
             "srt://192.168.1.20:9000?mode=caller&latency=40000"
@@ -28,6 +30,8 @@ final class StreamConfigurationTests: XCTestCase {
         XCTAssertEqual(configuration.fps, 60)
         XCTAssertEqual(configuration.bitrate, 20_000_000)
         XCTAssertFalse(configuration.blurredBackground)
+        XCTAssertFalse(configuration.hideCursor)
+        XCTAssertFalse(configuration.hideNotifications)
     }
 
     func testDimensionsMustBeEven() {

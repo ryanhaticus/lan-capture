@@ -13,6 +13,8 @@ struct StreamConfiguration: Equatable {
     let bitrate: Int
     let displayID: UInt32?
     let blurredBackground: Bool
+    let hideCursor: Bool
+    let hideNotifications: Bool
 
     static func parse(url rawURL: String) throws -> StreamConfiguration {
         guard var components = URLComponents(string: rawURL),
@@ -25,7 +27,8 @@ struct StreamConfiguration: Equatable {
 
         var appOptions: [String: String] = [:]
         let appOptionNames = Set([
-            "width", "height", "fps", "bitrate", "display", "blurbackground",
+            "width", "height", "fps", "bitrate", "display", "blurbackground", "hidecursor",
+            "hidenotifications",
         ])
         components.queryItems = components.queryItems?.filter { item in
             if appOptionNames.contains(item.name.lowercased()) {
@@ -47,6 +50,10 @@ struct StreamConfiguration: Equatable {
             appOptions["blurbackground"],
             named: "blurBackground",
             default: false
+        )
+        let hideCursor = try boolean(appOptions["hidecursor"], named: "hideCursor", default: false)
+        let hideNotifications = try boolean(
+            appOptions["hidenotifications"], named: "hideNotifications", default: false
         )
 
         guard width.isMultiple(of: 2), height.isMultiple(of: 2) else {
@@ -73,7 +80,9 @@ struct StreamConfiguration: Equatable {
             fps: fps,
             bitrate: bitrate,
             displayID: displayID,
-            blurredBackground: blurredBackground
+            blurredBackground: blurredBackground,
+            hideCursor: hideCursor,
+            hideNotifications: hideNotifications
         )
     }
 

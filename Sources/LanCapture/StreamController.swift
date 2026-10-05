@@ -33,6 +33,12 @@ final class StreamController: ObservableObject {
     @Published var blurredBackground: Bool {
         didSet { defaults.set(blurredBackground, forKey: Keys.blurredBackground) }
     }
+    @Published var hideCursor: Bool {
+        didSet { defaults.set(hideCursor, forKey: Keys.hideCursor) }
+    }
+    @Published var hideNotifications: Bool {
+        didSet { defaults.set(hideNotifications, forKey: Keys.hideNotifications) }
+    }
 
     private let defaults: UserDefaults
     private var ffmpeg: FFmpegBridge?
@@ -48,6 +54,8 @@ final class StreamController: ObservableObject {
         fps = defaults.object(forKey: Keys.fps) as? Int ?? StreamConfiguration.defaultFPS
         bitrateMbps = defaults.object(forKey: Keys.bitrateMbps) as? Int ?? 20
         blurredBackground = defaults.object(forKey: Keys.blurredBackground) as? Bool ?? false
+        hideCursor = defaults.object(forKey: Keys.hideCursor) as? Bool ?? false
+        hideNotifications = defaults.object(forKey: Keys.hideNotifications) as? Bool ?? false
 
         networkTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -173,6 +181,8 @@ final class StreamController: ObservableObject {
             URLQueryItem(name: "fps", value: String(fps)),
             URLQueryItem(name: "bitrate", value: String(bitrateMbps * 1_000_000)),
             URLQueryItem(name: "blurBackground", value: blurredBackground ? "true" : "false"),
+            URLQueryItem(name: "hideCursor", value: hideCursor ? "true" : "false"),
+            URLQueryItem(name: "hideNotifications", value: hideNotifications ? "true" : "false"),
         ]
         guard let url = components.url else {
             throw MenuBarConfigurationError.invalidListenerAddress
@@ -208,6 +218,8 @@ final class StreamController: ObservableObject {
         static let fps = "fps"
         static let bitrateMbps = "bitrateMbps"
         static let blurredBackground = "blurredBackground"
+        static let hideCursor = "hideCursor"
+        static let hideNotifications = "hideNotifications"
     }
 }
 

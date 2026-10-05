@@ -169,6 +169,11 @@ private struct MenuBarView: View {
             }
             Toggle("Blur background instead of cropping", isOn: $controller.blurredBackground)
                 .toggleStyle(.checkbox)
+            Toggle("Hide mouse cursor in stream", isOn: $controller.hideCursor)
+                .toggleStyle(.checkbox)
+            Toggle("Hide notifications in stream", isOn: $controller.hideNotifications)
+                .toggleStyle(.checkbox)
+                .help("Hide macOS notification banners and Notification Center from the stream.")
         }
         .disabled(!controller.canEditSettings)
     }
