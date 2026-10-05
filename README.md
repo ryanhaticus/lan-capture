@@ -18,6 +18,7 @@ The app captures video with ScreenCaptureKit and encodes H.264 with VideoToolbox
 - SRT listener mode, so the Mac does not require the receiver address
 - Configurable width, height, frame rate, bitrate, and port
 - Center cropping or a blurred background for different aspect ratios
+- Checkboxes to hide the mouse cursor and macOS notifications from the stream
 - Automatic FFmpeg discovery
 
 ## Requirements
@@ -137,6 +138,17 @@ The default mode center-crops the display when the display and output use differ
 Enable **Blur background instead of cropping** to preserve the full display. The app fills the unused area with blurred display content.
 
 The H.264 stream carries its width and height. Compatible receivers read these values without URL parameters.
+
+## Hide the mouse cursor and notifications
+
+When the stream is stopped, select the checkboxes in the **Video** section:
+
+- **Hide mouse cursor in stream** excludes the mouse cursor from the video.
+- **Hide notifications in stream** excludes macOS notification banners and Notification Center from the video.
+
+The cursor and notifications remain visible on the Mac. The notification setting does not hide alerts drawn inside other apps.
+
+Both checkboxes are off by default. LAN Capture saves your selections for future streams.
 
 ## Reduce latency
 
