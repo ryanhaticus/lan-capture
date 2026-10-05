@@ -40,6 +40,10 @@ final class StreamController: ObservableObject {
         didSet { defaults.set(hideNotifications, forKey: Keys.hideNotifications) }
     }
 
+    @Published var systemAudio: Bool {
+        didSet { defaults.set(systemAudio, forKey: Keys.systemAudio) }
+    }
+
     private let defaults: UserDefaults
     private var ffmpeg: FFmpegBridge?
     private var encoder: H264Encoder?
@@ -56,6 +60,8 @@ final class StreamController: ObservableObject {
         blurredBackground = defaults.object(forKey: Keys.blurredBackground) as? Bool ?? false
         hideCursor = defaults.object(forKey: Keys.hideCursor) as? Bool ?? false
         hideNotifications = defaults.object(forKey: Keys.hideNotifications) as? Bool ?? false
+
+        systemAudio = defaults.object(forKey: Keys.systemAudio) as? Bool ?? false
 
         networkTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             Task { @MainActor in
@@ -97,10 +103,17 @@ final class StreamController: ObservableObject {
             state = .starting
 
             let ffmpeg = FFmpegBridge(configuration: configuration)
-            let encoder = try H264Encoder(configuration: configuration) { [weak ffmpeg] data in
-                ffmpeg?.write(data)
+            let muxer = CaptureMuxer(configuration: configuration) { [weak ffmpeg] data, isHeader in
+                ffmpeg?.write(data, isHeader: isHeader)
             }
-            let capture = ScreenCaptureSource(configuration: configuration, encoder: encoder)
+            let encoder = try H264Encoder(configuration: configuration) { sample in
+                muxer.writeVideo(sample)
+            }
+            let capture = ScreenCaptureSource(
+                configuration: configuration,
+                encoder: encoder,
+                audioHandler: { sample in muxer.writeAudio(sample) }
+            )
             self.ffmpeg = ffmpeg
             self.encoder = encoder
             self.capture = capture
@@ -183,6 +196,7 @@ final class StreamController: ObservableObject {
             URLQueryItem(name: "blurBackground", value: blurredBackground ? "true" : "false"),
             URLQueryItem(name: "hideCursor", value: hideCursor ? "true" : "false"),
             URLQueryItem(name: "hideNotifications", value: hideNotifications ? "true" : "false"),
+            URLQueryItem(name: "systemAudio", value: systemAudio ? "true" : "false"),
         ]
         guard let url = components.url else {
             throw MenuBarConfigurationError.invalidListenerAddress
@@ -220,6 +234,7 @@ final class StreamController: ObservableObject {
         static let blurredBackground = "blurredBackground"
         static let hideCursor = "hideCursor"
         static let hideNotifications = "hideNotifications"
+        static let systemAudio = "systemAudio"
     }
 }
 

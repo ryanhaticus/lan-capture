@@ -4,17 +4,19 @@
 
 # LAN Capture
 
-LAN Capture streams a Mac display across a local network. It sends H.264 video as MPEG-TS over SRT to any compatible receiver.
+LAN Capture streams a Mac display across a local network. It sends H.264 video and optional AAC system audio as MPEG-TS over SRT.
 
-The app captures video with ScreenCaptureKit and encodes H.264 with VideoToolbox. OBS Studio is one supported receiver, but it is not required.
+The app captures video and system audio with ScreenCaptureKit. VideoToolbox encodes H.264, and FFmpeg encodes AAC. OBS Studio is one supported receiver, but it is not required.
 
-> LAN Capture sends video only. It does not send system audio.
+System audio is optional and off by default. LAN Capture does not capture microphone audio.
 
 ## Features
 
 - Menu-bar controls for the stream and video settings
 - The local IPv4 address and a copyable SRT input URL
 - Hardware H.264 encoding through VideoToolbox
+- Optional stereo system audio at 48 kHz, encoded as AAC at 192 kbps
+- Shared capture timestamps to keep audio and video synchronized
 - SRT listener mode, so the Mac does not require the receiver address
 - Configurable width, height, frame rate, bitrate, and port
 - Center cropping or a blurred background for different aspect ratios
@@ -149,6 +151,20 @@ When the stream is stopped, select the checkboxes in the **Video** section:
 The cursor and notifications remain visible on the Mac. The notification setting does not hide alerts drawn inside other apps.
 
 Both checkboxes are off by default. LAN Capture saves your selections for future streams.
+
+## Stream system audio
+
+1. Stop the stream.
+2. Select **Stream system audio** in the **Audio** section.
+3. Click **Start Stream**.
+
+LAN Capture saves this selection for future streams. The SRT URL stays the same.
+
+The receiver must support AAC audio in MPEG-TS. OBS receives the audio through the same Media Source as the video.
+
+System audio includes audio from Mac apps. LAN Capture excludes its own audio and does not capture the microphone.
+
+macOS uses screen-recording permission for this capture. On newer macOS versions, this permission appears as **Screen & System Audio Recording**.
 
 ## Reduce latency
 

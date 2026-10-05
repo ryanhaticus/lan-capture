@@ -34,6 +34,9 @@ jobs:
           fi
           echo "number=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      - name: Install FFmpeg for audio and transport integration tests
+        run: brew install ffmpeg-full
+
       - name: Run tests
         run: swift test
 

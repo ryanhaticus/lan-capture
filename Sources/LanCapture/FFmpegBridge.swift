@@ -1,30 +1,57 @@
+import Darwin
 import Foundation
 
 final class FFmpegBridge {
+    private struct Chunk {
+        let data: Data
+        let isHeader: Bool
+        var offset = 0
+    }
+
     private let process = Process()
     private let inputPipe = Pipe()
     private let configuration: StreamConfiguration
     private let lock = NSLock()
+    private let writeQueue = DispatchQueue(label: "LanCapture.FFmpegInput")
+    private var writeSource: DispatchSourceWrite?
+    private var sourceSuspended = false
+    private var pending: [Chunk] = []
+    private var pendingBytes = 0
     private var stopped = false
+    private static let maximumPendingBytes = 2 * 1_024 * 1_024
 
     init(configuration: StreamConfiguration) {
         self.configuration = configuration
     }
 
-    func start() throws {
-        process.executableURL = try FFmpegLocator.find()
-        process.arguments = [
+    static func arguments(configuration: StreamConfiguration) -> [String] {
+        var arguments = [
             "-hide_banner",
             "-loglevel", "warning",
-            "-fflags", "nobuffer",
             "-flags", "low_delay",
             "-analyzeduration", "0",
             "-probesize", "32",
-            "-f", "h264",
-            "-framerate", String(configuration.fps),
+            "-f", "matroska",
             "-i", "pipe:0",
-            "-an",
+            "-map", "0:v:0",
             "-c:v", "copy",
+        ]
+        if configuration.systemAudio {
+            arguments += [
+                "-map", "0:a:0",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-af", "aresample=async=1:first_pts=0",
+            ]
+        } else {
+            arguments += ["-an"]
+        }
+        arguments += [
+            // AAC priming starts before the first video sample. Shift both tracks together
+            // so MPEG-TS never wraps a negative timestamp around its 33-bit clock.
+            // This changes timestamp values, not buffering or playback latency.
+            "-output_ts_offset", "0.1",
+            "-max_interleave_delta", "100000",
             "-max_delay", "0",
             "-muxdelay", "0",
             "-muxpreload", "0",
@@ -33,22 +60,83 @@ final class FFmpegBridge {
             "-f", "mpegts",
             configuration.transportURL.absoluteString,
         ]
+        return arguments
+    }
+
+    func start() throws {
+        process.executableURL = try FFmpegLocator.find()
+        process.arguments = Self.arguments(configuration: configuration)
         process.standardInput = inputPipe
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.standardError
         try process.run()
+
+        let handle = inputPipe.fileHandleForWriting
+        let descriptor = handle.fileDescriptor
+        _ = fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK)
+        // Report a broken pipe as an error rather than terminating the application.
+        _ = fcntl(descriptor, F_SETNOSIGPIPE, 1)
+        let source = DispatchSource.makeWriteSource(fileDescriptor: descriptor, queue: writeQueue)
+        source.setEventHandler { [weak self] in self?.flush() }
+        source.setCancelHandler { try? handle.close() }
+        lock.lock()
+        writeSource = source
+        sourceSuspended = true
+        lock.unlock()
+        // A dispatch source starts suspended; the first packet resumes it.
     }
 
-    func write(_ data: Data) {
+    func write(_ data: Data, isHeader: Bool = false) {
+        guard !data.isEmpty else { return }
         lock.lock()
         defer { lock.unlock() }
-        guard !stopped else { return }
-
-        do {
-            try inputPipe.fileHandleForWriting.write(contentsOf: data)
-        } catch {
-            fputs("Could not write encoded video to FFmpeg: \(error)\n", stderr)
+        guard !stopped, let writeSource else { return }
+        pending.append(Chunk(data: data, isHeader: isHeader))
+        pendingBytes += data.count
+        // A listener can wait indefinitely for a receiver. Keep capture callbacks responsive
+        // and bound memory by discarding whole, unsent clusters. Never truncate a cluster.
+        while pendingBytes > Self.maximumPendingBytes,
+            let index = pending.firstIndex(where: { !$0.isHeader && $0.offset == 0 })
+        {
+            pendingBytes -= pending.remove(at: index).data.count
         }
+        if sourceSuspended {
+            sourceSuspended = false
+            writeSource.resume()
+        }
+    }
+
+    private func flush() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !stopped, let writeSource else { return }
+        while let chunk = pending.first {
+            let written = chunk.data.withUnsafeBytes { bytes in
+                Darwin.write(
+                    inputPipe.fileHandleForWriting.fileDescriptor,
+                    bytes.baseAddress!.advanced(by: chunk.offset), bytes.count - chunk.offset
+                )
+            }
+            if written < 0 {
+                if errno == EINTR { continue }
+                if errno != EAGAIN && errno != EWOULDBLOCK {
+                    fputs("Could not write captured media to FFmpeg (errno \(errno)).\n", stderr)
+                    pending.removeAll()
+                    pendingBytes = 0
+                    writeSource.suspend()
+                    sourceSuspended = true
+                }
+                return
+            }
+            guard written > 0 else { return }
+            pendingBytes -= written
+            pending[0].offset += written
+            if pending[0].offset == chunk.data.count {
+                pending.removeFirst()
+            }
+        }
+        writeSource.suspend()
+        sourceSuspended = true
     }
 
     func stop() {
@@ -58,7 +146,15 @@ final class FFmpegBridge {
             return
         }
         stopped = true
-        try? inputPipe.fileHandleForWriting.close()
+        pending.removeAll()
+        pendingBytes = 0
+        if let source = writeSource {
+            if sourceSuspended { source.resume() }
+            source.cancel()
+            writeSource = nil
+        } else {
+            try? inputPipe.fileHandleForWriting.close()
+        }
         lock.unlock()
 
         if process.isRunning {

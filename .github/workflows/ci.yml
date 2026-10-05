@@ -20,6 +20,9 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
+      - name: Install FFmpeg for audio and transport integration tests
+        run: brew install ffmpeg-full
+
       - name: Run tests
         run: swift test
 

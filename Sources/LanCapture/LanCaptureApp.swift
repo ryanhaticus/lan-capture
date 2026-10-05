@@ -38,6 +38,7 @@ private struct MenuBarView: View {
             Divider()
             obsSection
             videoSection
+            audioSection
 
             if let error = controller.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -174,6 +175,18 @@ private struct MenuBarView: View {
             Toggle("Hide notifications in stream", isOn: $controller.hideNotifications)
                 .toggleStyle(.checkbox)
                 .help("Hide macOS notification banners and Notification Center from the stream.")
+        }
+        .disabled(!controller.canEditSettings)
+    }
+
+    private var audioSection: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text("AUDIO")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Toggle("Stream system audio", isOn: $controller.systemAudio)
+                .toggleStyle(.checkbox)
+                .help("Send audio from Mac apps with the video. Microphone audio is excluded.")
         }
         .disabled(!controller.canEditSettings)
     }

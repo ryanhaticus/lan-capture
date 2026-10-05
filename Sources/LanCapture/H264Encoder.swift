@@ -4,7 +4,7 @@ import Foundation
 import VideoToolbox
 
 final class H264Encoder {
-    typealias OutputHandler = (Data) -> Void
+    typealias OutputHandler = (CMSampleBuffer) -> Void
 
     private var session: VTCompressionSession?
     private let outputHandler: OutputHandler
@@ -19,7 +19,7 @@ final class H264Encoder {
                 let sampleBuffer
             else { return }
             let encoder = Unmanaged<H264Encoder>.fromOpaque(refcon).takeUnretainedValue()
-            encoder.handle(sampleBuffer)
+            encoder.outputHandler(sampleBuffer)
         }
 
         let status = VTCompressionSessionCreate(
@@ -110,87 +110,6 @@ final class H264Encoder {
         }
     }
 
-    private func handle(_ sampleBuffer: CMSampleBuffer) {
-        guard CMSampleBufferDataIsReady(sampleBuffer),
-            let blockBuffer = CMSampleBufferGetDataBuffer(sampleBuffer)
-        else { return }
-
-        let attachments =
-            CMSampleBufferGetSampleAttachmentsArray(
-                sampleBuffer,
-                createIfNecessary: false
-            ) as? [[CFString: Any]]
-        let isKeyframe = attachments?.first?[kCMSampleAttachmentKey_NotSync] == nil
-
-        var output = Data()
-        if isKeyframe, let format = CMSampleBufferGetFormatDescription(sampleBuffer) {
-            appendParameterSets(from: format, to: &output)
-        }
-
-        var lengthAtOffset = 0
-        var totalLength = 0
-        var dataPointer: UnsafeMutablePointer<Int8>?
-        let status = CMBlockBufferGetDataPointer(
-            blockBuffer,
-            atOffset: 0,
-            lengthAtOffsetOut: &lengthAtOffset,
-            totalLengthOut: &totalLength,
-            dataPointerOut: &dataPointer
-        )
-        guard status == kCMBlockBufferNoErr, let dataPointer else { return }
-
-        let bytes = UnsafeRawPointer(dataPointer).assumingMemoryBound(to: UInt8.self)
-        var offset = 0
-        while offset + 4 <= totalLength {
-            let nalLength =
-                Int(bytes[offset]) << 24
-                | Int(bytes[offset + 1]) << 16
-                | Int(bytes[offset + 2]) << 8
-                | Int(bytes[offset + 3])
-            offset += 4
-            guard nalLength > 0, offset + nalLength <= totalLength else { return }
-            output.append(contentsOf: [0, 0, 0, 1])
-            output.append(bytes + offset, count: nalLength)
-            offset += nalLength
-        }
-
-        if !output.isEmpty {
-            outputHandler(output)
-        }
-    }
-
-    private func appendParameterSets(
-        from format: CMFormatDescription,
-        to output: inout Data
-    ) {
-        var parameterSetCount = 0
-        var nalHeaderLength: Int32 = 0
-        let countStatus = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-            format,
-            parameterSetIndex: 0,
-            parameterSetPointerOut: nil,
-            parameterSetSizeOut: nil,
-            parameterSetCountOut: &parameterSetCount,
-            nalUnitHeaderLengthOut: &nalHeaderLength
-        )
-        guard countStatus == noErr else { return }
-
-        for index in 0..<parameterSetCount {
-            var pointer: UnsafePointer<UInt8>?
-            var size = 0
-            let status = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
-                format,
-                parameterSetIndex: index,
-                parameterSetPointerOut: &pointer,
-                parameterSetSizeOut: &size,
-                parameterSetCountOut: nil,
-                nalUnitHeaderLengthOut: nil
-            )
-            guard status == noErr, let pointer else { continue }
-            output.append(contentsOf: [0, 0, 0, 1])
-            output.append(pointer, count: size)
-        }
-    }
 }
 
 enum EncoderError: LocalizedError {

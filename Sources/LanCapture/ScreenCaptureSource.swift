@@ -6,13 +6,19 @@ import ScreenCaptureKit
 final class ScreenCaptureSource: NSObject, SCStreamOutput {
     private let configuration: StreamConfiguration
     private let encoder: H264Encoder
+    private let audioHandler: (CMSampleBuffer) -> Void
     private let captureQueue = DispatchQueue(label: "LanCapture.ScreenCapture")
     private var stream: SCStream?
     private var blurredBackgroundCompositor: BlurredBackgroundCompositor?
 
-    init(configuration: StreamConfiguration, encoder: H264Encoder) {
+    init(
+        configuration: StreamConfiguration,
+        encoder: H264Encoder,
+        audioHandler: @escaping (CMSampleBuffer) -> Void
+    ) {
         self.configuration = configuration
         self.encoder = encoder
+        self.audioHandler = audioHandler
     }
 
     func start() async throws {
@@ -62,10 +68,17 @@ final class ScreenCaptureSource: NSObject, SCStreamOutput {
         )
         streamConfiguration.queueDepth = 3
         streamConfiguration.showsCursor = !configuration.hideCursor
+        streamConfiguration.capturesAudio = configuration.systemAudio
+        streamConfiguration.sampleRate = AudioPCMConverter.sampleRate
+        streamConfiguration.channelCount = AudioPCMConverter.channelCount
+        streamConfiguration.excludesCurrentProcessAudio = true
         streamConfiguration.pixelFormat = kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
 
         let stream = SCStream(filter: filter, configuration: streamConfiguration, delegate: nil)
         try stream.addStreamOutput(self, type: .screen, sampleHandlerQueue: captureQueue)
+        if configuration.systemAudio {
+            try stream.addStreamOutput(self, type: .audio, sampleHandlerQueue: captureQueue)
+        }
         self.stream = stream
         try await stream.startCapture()
     }
@@ -81,7 +94,12 @@ final class ScreenCaptureSource: NSObject, SCStreamOutput {
         didOutputSampleBuffer sampleBuffer: CMSampleBuffer,
         of type: SCStreamOutputType
     ) {
-        guard type == .screen, sampleBuffer.isValid else { return }
+        guard sampleBuffer.isValid else { return }
+        if type == .audio {
+            audioHandler(sampleBuffer)
+            return
+        }
+        guard type == .screen else { return }
         guard let compositor = blurredBackgroundCompositor else {
             encoder.encode(sampleBuffer)
             return
